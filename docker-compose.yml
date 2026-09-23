@@ -1,0 +1,98 @@
+
+services:
+
+  # ── Redis ──────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: hotel-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Temporal (all-in-one dev setup) ───────────────────────────────────────
+  temporal:
+    image: temporalio/auto-setup:1.24
+    container_name: hotel-temporal
+    ports:
+      - "7233:7233"
+      - "8233:8233"
+    environment:
+      - DB=sqlite
+      - DYNAMIC_CONFIG_FILE_PATH=/etc/temporal/config/dynamicconfig/development-sql.yaml
+    volumes:
+      - temporal-data:/etc/temporal/data
+      - ./temporal-config:/etc/temporal/config/dynamicconfig
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── API Server ─────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: hotel-api
+    command: ["node", "dist/server.js"]
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_NAMESPACE=default
+      - TEMPORAL_TASK_QUEUE=hotel-offer-task-queue
+      - SUPPLIER_A_BASE_URL=http://api:3000
+      - SUPPLIER_B_BASE_URL=http://api:3000
+    depends_on:
+      redis:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ── Temporal Worker ────────────────────────────────────────────────────────
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: hotel-worker
+    command: ["node", "dist/temporal/worker.js"]
+    environment:
+      - NODE_ENV=production
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_NAMESPACE=default
+      - TEMPORAL_TASK_QUEUE=hotel-offer-task-queue
+      - SUPPLIER_A_BASE_URL=http://api:3000
+      - SUPPLIER_B_BASE_URL=http://api:3000
+    depends_on:
+      redis:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  redis-data:
+  temporal-data:

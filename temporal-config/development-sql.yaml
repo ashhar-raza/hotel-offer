@@ -1,0 +1,6 @@
+# Temporal dynamic configuration for development (SQLite backend)
+# This file is mounted into the Temporal container.
+
+system.forceSearchAttributesCacheRefreshOnRead:
+  - value: true
+    constraints: {}

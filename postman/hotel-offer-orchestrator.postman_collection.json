@@ -1,0 +1,290 @@
+{
+  "info": {
+    "_postman_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "name": "Hotel Offer Orchestrator",
+    "description": "Complete API test collection for the Hotel Offer Orchestrator backend.\n\nIncludes tests for:\n- Hotel aggregation with deduplication\n- Price range filtering via Redis Sorted Sets\n- Supplier mock endpoints\n- Health check\n- Error cases (invalid params, unknown city)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Hotel API",
+      "item": [
+        {
+          "name": "Test 1 — Delhi Hotels (Full List)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hotels?city=delhi",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "hotels"],
+              "query": [
+                { "key": "city", "value": "delhi" }
+              ]
+            },
+            "description": "Fetches all hotels for Delhi.\n\nExpected behavior:\n- Supplier A and B are called in parallel via Temporal workflow\n- Overlapping hotels (Holtin, Radison, The Leela) are deduplicated\n- Cheapest offer selected per hotel\n\nExpected result:\n- Holtin → Supplier B @ 5340 (cheaper than Supplier A @ 6000)\n- Radison → Supplier A @ 5900 (cheaper than Supplier B @ 6200)\n- Taj Palace → Supplier A only @ 7500\n- Marriott → Supplier B only @ 8200\n- The Leela → Supplier A @ 9200 (tie-breaker: A wins)"
+          },
+          "response": []
+        },
+        {
+          "name": "Test 2 — Price Filter (minPrice + maxPrice)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hotels?city=delhi&minPrice=5000&maxPrice=7000",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "hotels"],
+              "query": [
+                { "key": "city", "value": "delhi" },
+                { "key": "minPrice", "value": "5000" },
+                { "key": "maxPrice", "value": "7000" }
+              ]
+            },
+            "description": "Price filtering performed inside Redis using ZRANGEBYSCORE.\n\nExpected: Only hotels with 5000 ≤ price ≤ 7000\n- Holtin @ 5340 ✓\n- Radison @ 5900 ✓\n- Taj Palace @ 7500 ✗ (above range)\n- Marriott @ 8200 ✗ (above range)"
+          },
+          "response": []
+        },
+        {
+          "name": "Test 3 — Minimum Price Only",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hotels?city=delhi&minPrice=6000",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "hotels"],
+              "query": [
+                { "key": "city", "value": "delhi" },
+                { "key": "minPrice", "value": "6000" }
+              ]
+            },
+            "description": "Filters hotels with price ≥ 6000.\n\nExpected:\n- Taj Palace @ 7500 ✓\n- Marriott @ 8200 ✓\n- The Leela @ 9200 ✓"
+          },
+          "response": []
+        },
+        {
+          "name": "Test 4 — Maximum Price Only",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hotels?city=delhi&maxPrice=6000",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "hotels"],
+              "query": [
+                { "key": "city", "value": "delhi" },
+                { "key": "maxPrice", "value": "6000" }
+              ]
+            },
+            "description": "Filters hotels with price ≤ 6000.\n\nExpected:\n- Holtin @ 5340 ✓\n- Radison @ 5900 ✓"
+          },
+          "response": []
+        },
+        {
+          "name": "Test 5 — Unknown City",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hotels?city=unknown",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "hotels"],
+              "query": [
+                { "key": "city", "value": "unknown" }
+              ]
+            },
+            "description": "Request for a city not supported by either supplier.\n\nExpected: 200 OK with empty array []"
+          },
+          "response": []
+        },
+        {
+          "name": "Test 6 — Invalid Price (non-numeric minPrice)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hotels?city=delhi&minPrice=abc",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "hotels"],
+              "query": [
+                { "key": "city", "value": "delhi" },
+                { "key": "minPrice", "value": "abc" }
+              ]
+            },
+            "description": "Non-numeric minPrice should fail Zod validation.\n\nExpected: 400 Bad Request with error message"
+          },
+          "response": []
+        },
+        {
+          "name": "Test 7 — Invalid Range (minPrice > maxPrice)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hotels?city=delhi&minPrice=8000&maxPrice=5000",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "hotels"],
+              "query": [
+                { "key": "city", "value": "delhi" },
+                { "key": "minPrice", "value": "8000" },
+                { "key": "maxPrice", "value": "5000" }
+              ]
+            },
+            "description": "minPrice greater than maxPrice is an invalid range.\n\nExpected: 400 Bad Request with error message"
+          },
+          "response": []
+        },
+        {
+          "name": "Test 8 — Missing City",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hotels",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "hotels"]
+            },
+            "description": "city is a required query parameter.\n\nExpected: 400 Bad Request"
+          },
+          "response": []
+        },
+        {
+          "name": "Test 9 — Mumbai Hotels",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/hotels?city=mumbai",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "hotels"],
+              "query": [
+                { "key": "city", "value": "mumbai" }
+              ]
+            },
+            "description": "Fetches Mumbai hotels — different city to test key isolation.\n\nExpected: Oberoi (B cheaper @ 10500), Trident (A only), JW Marriott (A cheaper @ 12500), Taj Lands End (B only @ 9000)"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Test 10 — Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            },
+            "description": "Checks health of all dependencies: Redis, Temporal, Supplier A, Supplier B.\n\nExpected: 200 OK with status object showing UP or DEGRADED for each component"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Supplier Mocks",
+      "item": [
+        {
+          "name": "Test 11 — Supplier A: Delhi Hotels",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/supplierA/hotels?city=delhi",
+              "host": ["{{baseUrl}}"],
+              "path": ["supplierA", "hotels"],
+              "query": [
+                { "key": "city", "value": "delhi" }
+              ]
+            },
+            "description": "Direct access to Supplier A mock endpoint for Delhi."
+          },
+          "response": []
+        },
+        {
+          "name": "Test 12 — Supplier B: Delhi Hotels",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/supplierB/hotels?city=delhi",
+              "host": ["{{baseUrl}}"],
+              "path": ["supplierB", "hotels"],
+              "query": [
+                { "key": "city", "value": "delhi" }
+              ]
+            },
+            "description": "Direct access to Supplier B mock endpoint for Delhi."
+          },
+          "response": []
+        },
+        {
+          "name": "Test 13 — Supplier A: Simulated Failure",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/supplierA/hotels?city=delhi&fail=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["supplierA", "hotels"],
+              "query": [
+                { "key": "city", "value": "delhi" },
+                { "key": "fail", "value": "true" }
+              ]
+            },
+            "description": "Simulates Supplier A returning 503 Service Unavailable.\n\nThis can be used to test Temporal activity retry behavior.\nWhen called from Temporal, the activity will retry up to 3 times before failing the workflow.\n\nExpected: 503 Service Unavailable"
+          },
+          "response": []
+        },
+        {
+          "name": "Test 14 — Supplier B: Simulated Failure",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/supplierB/hotels?city=delhi&fail=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["supplierB", "hotels"],
+              "query": [
+                { "key": "city", "value": "delhi" },
+                { "key": "fail", "value": "true" }
+              ]
+            },
+            "description": "Simulates Supplier B returning 503 Service Unavailable.\n\nExpected: 503 Service Unavailable"
+          },
+          "response": []
+        },
+        {
+          "name": "Test 15 — Supplier A: Unknown City",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/supplierA/hotels?city=unknown",
+              "host": ["{{baseUrl}}"],
+              "path": ["supplierA", "hotels"],
+              "query": [
+                { "key": "city", "value": "unknown" }
+              ]
+            },
+            "description": "Expected: 200 OK with empty array []"
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
