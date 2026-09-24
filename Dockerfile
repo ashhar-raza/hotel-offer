@@ -1,5 +1,5 @@
 # ── Stage 1: Build ──────────────────────────────────────────────────────────
-FROM node:20-alpine AS builder
+FROM node:20-slim AS builder
 
 WORKDIR /app
 
@@ -7,13 +7,16 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 
-# Copy source and compile TypeScript
+# Copy source, static data, and compile TypeScript
 COPY tsconfig.json ./
 COPY src/ ./src/
 RUN npm run build
 
+
 # ── Stage 2: Production runtime ─────────────────────────────────────────────
-FROM node:20-alpine AS runtime
+# node:20-slim (Debian) is required — @temporalio/core-bridge ships a glibc
+# native binary (ld-linux-x86-64.so.2) that is incompatible with Alpine musl.
+FROM node:20-slim AS runtime
 
 WORKDIR /app
 
@@ -24,8 +27,11 @@ RUN npm ci --omit=dev && npm cache clean --force
 # Copy compiled JavaScript from builder stage
 COPY --from=builder /app/dist ./dist
 
-# Non-root user for security
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+# Copy static supplier JSON data files (resolved by supplier.activities.ts at runtime)
+COPY --from=builder /app/src/data ./src/data
+
+# Non-root user for security (Debian-style commands)
+RUN groupadd -r appgroup && useradd -r -g appgroup appuser
 USER appuser
 
 EXPOSE 3000

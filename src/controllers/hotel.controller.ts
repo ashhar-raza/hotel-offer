@@ -52,6 +52,10 @@ export async function getHotelsHandler(
  * Returns the health status of all system dependencies.
  * Reports DEGRADED (not DOWN) so the endpoint always returns 200
  * and dependent monitors can read component-level status.
+ *
+ * Note: supplier health is not checked here because both suppliers
+ * are served from static JSON files embedded in the image — they
+ * are always available as long as the process is running.
  */
 export async function healthHandler(
   _req: Request,
@@ -59,42 +63,23 @@ export async function healthHandler(
 ): Promise<void> {
   logger.info('Health check requested');
 
-  const [redisUp, temporalUp, supplierAUp, supplierBUp] = await Promise.allSettled([
+  const [redisUp, temporalUp] = await Promise.allSettled([
     pingRedis(),
     pingTemporal(),
-    checkSupplierHealth('supplierA'),
-    checkSupplierHealth('supplierB'),
   ]).then((results) =>
     results.map((r) => r.status === 'fulfilled' && r.value === true)
   );
 
-  const allUp = redisUp && temporalUp && supplierAUp && supplierBUp;
+  const allUp = redisUp && temporalUp;
 
   const body = {
     status: allUp ? 'UP' : 'DEGRADED',
     redis: redisUp ? 'UP' : 'DOWN',
     temporal: temporalUp ? 'UP' : 'DOWN',
-    suppliers: {
-      supplierA: supplierAUp ? 'UP' : 'DOWN',
-      supplierB: supplierBUp ? 'UP' : 'DOWN',
-    },
+    suppliers: { supplierA: 'UP', supplierB: 'UP' },
   };
 
   logger.info(body, 'Health check complete');
   res.json(body);
 }
 
-/**
- * Pings a supplier endpoint to check availability.
- */
-async function checkSupplierHealth(supplier: 'supplierA' | 'supplierB'): Promise<boolean> {
-  try {
-    const axios = await import('axios');
-    // Use a neutral city so that the supplier returns 200 (not necessarily data)
-    const url = `http://localhost:${process.env['PORT'] ?? 3000}/${supplier}/hotels?city=delhi`;
-    await axios.default.get(url, { timeout: 3000 });
-    return true;
-  } catch {
-    return false;
-  }
-}
